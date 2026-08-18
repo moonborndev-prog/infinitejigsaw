@@ -46,7 +46,7 @@
     -webkit-overflow-scrolling:touch; }
   #trayViewport::-webkit-scrollbar { display:none; }
   #tray { display:flex; gap:0; padding:0 6px; }
-  .trayCell { flex:0 0 auto; display:flex; align-items:center; justify-content:center; cursor:grab; }
+  .trayCell { flex:0 0 auto; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none; }
   .trayCell canvas { display:block; pointer-events:none; }
   #toast { position:fixed; left:50%; top:16%; transform:translate(-50%,-50%) scale(.9); opacity:0;
     background:rgba(15,30,38,.95); border:1px solid #3a5f70; border-radius:14px; padding:13px 26px;
@@ -443,11 +443,17 @@ function jigsawPathScaled(g,x,y,n,e){
 /* ============ DRAG & SNAP ============ */
 let drag=null; // {cell, r, c, px,py}
 const trayVp=document.getElementById("trayViewport");
+let dragPointerId=null, dragCaptureEl=null;
 document.getElementById("tray").addEventListener("pointerdown", e=>{
   const cell=e.target.closest(".trayCell"); if(!cell||animating) return;
   const i=+cell.dataset.cell, r=Math.floor(i/GRID), c=i%GRID;
   drag={cell:i,r,c,x:e.clientX,y:e.clientY,src:cell};
   cell.style.visibility="hidden";
+  // pointer'ı yakala: parmak board'a çıkınca tarayıcı scroll'a çeviremesin
+  dragPointerId=e.pointerId; dragCaptureEl=cell;
+  try { cell.setPointerCapture(e.pointerId); } catch(_){}
+  // sürükleme boyunca tray scroll'unu kilitle (görünmez duvarı kaldırır)
+  trayVp.style.touchAction="none";
   initAudio();
   e.preventDefault();
 });
@@ -455,7 +461,8 @@ window.addEventListener("pointermove", e=>{
   if(!drag) return;
   drag.x=e.clientX; drag.y=e.clientY;
   drawDrag();
-});
+  e.preventDefault();
+}, {passive:false});
 window.addEventListener("pointerup", e=>{
   if(!drag) return;
   const rect=boardCv.getBoundingClientRect();
@@ -489,8 +496,21 @@ window.addEventListener("pointerup", e=>{
       err(); vibrate([12,20,12]);
     }
   }
-  drag=null;
+  endDrag();
 });
+window.addEventListener("pointercancel", ()=>{
+  if(!drag) return;
+  if (drag.src) drag.src.style.visibility="visible";
+  dctx.setTransform(1,0,0,1,0,0); dctx.clearRect(0,0,dragCv.width,dragCv.height);
+  endDrag();
+});
+function endDrag(){
+  // pointer capture'ı bırak, tray scroll'unu geri aç
+  try { if(dragCaptureEl && dragPointerId!=null) dragCaptureEl.releasePointerCapture(dragPointerId); } catch(_){}
+  dragCaptureEl=null; dragPointerId=null;
+  trayVp.style.touchAction="pan-x";
+  drag=null;
+}
 function drawDrag(){
   dctx.setTransform(dpr,0,0,dpr,0,0);
   dctx.clearRect(0,0,dragCv.width/dpr,dragCv.height/dpr);
