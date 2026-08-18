@@ -443,27 +443,48 @@ function jigsawPathScaled(g,x,y,n,e){
 /* ============ DRAG & SNAP ============ */
 let drag=null; // {cell, r, c, px,py}
 const trayVp=document.getElementById("trayViewport");
-let dragPointerId=null, dragCaptureEl=null;
+trayVp.addEventListener("scroll", ()=>{ if(drag) trayVp.scrollLeft=trayScrollLock; });
+let dragPointerId=null, dragCaptureEl=null, trayScrollLock=0, pending=null;
 document.getElementById("tray").addEventListener("pointerdown", e=>{
   const cell=e.target.closest(".trayCell"); if(!cell||animating) return;
   const i=+cell.dataset.cell, r=Math.floor(i/GRID), c=i%GRID;
-  drag={cell:i,r,c,x:e.clientX,y:e.clientY,src:cell};
-  cell.style.visibility="hidden";
-  // pointer'ı yakala: parmak board'a çıkınca tarayıcı scroll'a çeviremesin
-  dragPointerId=e.pointerId; dragCaptureEl=cell;
-  try { cell.setPointerCapture(e.pointerId); } catch(_){}
-  // sürükleme boyunca tray scroll'unu kilitle (görünmez duvarı kaldırır)
-  trayVp.style.touchAction="none";
+  // henüz sürükleme başlatma — sadece aday olarak tut, yön belli olunca karar ver
+  pending={cell:i,r,c,x0:e.clientX,y0:e.clientY,x:e.clientX,y:e.clientY,src:cell,pid:e.pointerId};
   initAudio();
-  e.preventDefault();
 });
+function startDrag(){
+  drag={cell:pending.cell,r:pending.r,c:pending.c,x:pending.x,y:pending.y,src:pending.src};
+  pending.src.style.visibility="hidden";
+  dragPointerId=pending.pid; dragCaptureEl=pending.src;
+  try { pending.src.setPointerCapture(pending.pid); } catch(_){}
+  trayScrollLock=trayVp.scrollLeft;
+  trayVp.style.overflowX="hidden"; trayVp.style.touchAction="none";
+  pending=null;
+}
 window.addEventListener("pointermove", e=>{
+  // karar aşaması: eşik + yön
+  if(pending){
+    const dx=e.clientX-pending.x0, dy=e.clientY-pending.y0;
+    const dist=Math.hypot(dx,dy);
+    if(dist>10){
+      if(Math.abs(dy) > Math.abs(dx)*0.8){
+        // dikey baskın → parçayı al
+        pending.x=e.clientX; pending.y=e.clientY;
+        startDrag(); drawDrag(); e.preventDefault();
+      } else {
+        // yatay baskın → tray kaysın, parçayı bırak
+        pending=null;
+      }
+    }
+    return;
+  }
   if(!drag) return;
   drag.x=e.clientX; drag.y=e.clientY;
   drawDrag();
   e.preventDefault();
 }, {passive:false});
 window.addEventListener("pointerup", e=>{
+  if(pending){ pending=null; return; }  // eşik aşılmadan bırakıldı = sadece dokunuş
   if(!drag) return;
   const rect=boardCv.getBoundingClientRect();
   const cs=BOARD/GRID;
@@ -508,7 +529,9 @@ function endDrag(){
   // pointer capture'ı bırak, tray scroll'unu geri aç
   try { if(dragCaptureEl && dragPointerId!=null) dragCaptureEl.releasePointerCapture(dragPointerId); } catch(_){}
   dragCaptureEl=null; dragPointerId=null;
+  trayVp.style.overflowX="auto";
   trayVp.style.touchAction="pan-x";
+  trayVp.scrollLeft=trayScrollLock;
   drag=null;
 }
 function drawDrag(){
